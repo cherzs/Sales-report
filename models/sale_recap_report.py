@@ -184,10 +184,9 @@ class RekapSOPayment(models.Model):
                         GROUP BY aml_inv.move_id
                     ),
                     delivery_data AS (
-                        -- HYBRID: handles both new data (sale_line_id populated)
-                        -- and legacy data (sale_line_id = NULL, use origin fallback)
-
-                        -- METHOD A: New data — linked via stock_move.sale_line_id
+                        -- One row per (sale_order_line, stock_picking)
+                        -- Relasi: stock_move.sale_line_id → sale_order_line.id
+                        -- Delivered qty: stock_move_line.quantity (Odoo 18 = qty_done)
                         SELECT
                             sm.sale_line_id                    AS so_line_id,
                             sp.id                              AS picking_id,
@@ -212,38 +211,6 @@ class RekapSOPayment(models.Model):
                           AND spt.code = 'outgoing'
                         GROUP BY
                             sm.sale_line_id, sp.id, sp.name, sp.date_done,
-                            sp.state, rp.name, sp.note, sw.name
-
-                        UNION
-
-                        -- METHOD B: Legacy data — sale_line_id IS NULL on stock_move
-                        -- Fallback to origin = so.name, matched by product
-                        SELECT
-                            sol_leg.id                         AS so_line_id,
-                            sp.id                              AS picking_id,
-                            sp.name                            AS delivery_number,
-                            sp.date_done::date                 AS delivery_date,
-                            sp.state                           AS delivery_status,
-                            rp.name                            AS receiver,
-                            sp.note                            AS shipping_note,
-                            sw.name                            AS branch_name,
-                            SUM(COALESCE(sml.quantity, 0))     AS total_delivered_qty
-                        FROM stock_picking sp
-                        INNER JOIN sale_order so_leg ON so_leg.name = sp.origin
-                        INNER JOIN sale_order_line sol_leg ON sol_leg.order_id = so_leg.id
-                        INNER JOIN stock_move sm ON sm.picking_id = sp.id
-                            AND sm.product_id = sol_leg.product_id
-                            AND sm.sale_line_id IS NULL
-                        INNER JOIN stock_move_line sml ON sml.move_id = sm.id
-                        LEFT JOIN res_partner rp ON rp.id = sp.partner_id
-                        LEFT JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
-                        LEFT JOIN stock_warehouse sw ON sw.id = spt.warehouse_id
-                        WHERE sm.state = 'done'
-                          AND sp.state = 'done'
-                          AND spt.code = 'outgoing'
-                          AND so_leg.state IN ('sale', 'done')
-                        GROUP BY
-                            sol_leg.id, sp.id, sp.name, sp.date_done,
                             sp.state, rp.name, sp.note, sw.name
                     ),
                     invoice_data AS (
