@@ -216,10 +216,10 @@ class RekapSOPayment(models.Model):
                     ),
                     invoice_data AS (
                         -- Invoice linked via the junction table sale_order_line_invoice_rel
-                        -- This is the correct Odoo relation (sale_line_ids M2M)
+                        -- Odoo 18: column1='order_line_id', column2='invoice_line_id'
                         -- Supports: 1 Delivery → 1 Invoice AND N Deliveries → 1 Invoice
                         SELECT DISTINCT
-                            rel.sale_line_id                   AS so_line_id,
+                            rel.order_line_id                  AS so_line_id,
                             am.id                              AS invoice_id,
                             am.name                            AS invoice_number,
                             am.invoice_date                    AS invoice_date
