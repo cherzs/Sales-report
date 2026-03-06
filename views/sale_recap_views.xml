@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================ -->
+    <!-- 1. GROSS PROFIT                              -->
+    <!-- ============================================ -->
+    
+    <!-- List View -->
+    <record id="view_x_gross_profit_tree" model="ir.ui.view">
+        <field name="name">x.gross.profit.tree</field>
+        <field name="model">x_gross.profit</field>
+        <field name="arch" type="xml">
+            <list string="Gross Profit">
+                <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
+                <field name="qty" sum="Total Qty"/>
+                <field name="amount" sum="Total Amount"/>
+                <field name="cogs" sum="Total COGS" optional="show"/>
+                <field name="gp_percent" widget="percentage" optional="show"/>
+                <field name="total_gross_profit" sum="Total GP"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Pivot View -->
+    <record id="view_x_gross_profit_pivot" model="ir.ui.view">
+        <field name="name">x.gross.profit.pivot</field>
+        <field name="model">x_gross.profit</field>
+        <field name="arch" type="xml">
+            <pivot string="Gross Profit Analysis">
+                <field name="category_items" type="row"/>
+                <field name="qty" type="measure"/>
+                <field name="amount" type="measure"/>
+                <field name="cogs" type="measure"/>
+                <field name="total_gross_profit" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- Graph View -->
+    <record id="view_x_gross_profit_graph" model="ir.ui.view">
+        <field name="name">x.gross.profit.graph</field>
+        <field name="model">x_gross.profit</field>
+        <field name="arch" type="xml">
+            <graph string="Gross Profit Analysis" type="bar">
+                <field name="category_items" type="row"/>
+                <field name="total_gross_profit" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_x_gross_profit_search" model="ir.ui.view">
+        <field name="name">x.gross.profit.search</field>
+        <field name="model">x_gross.profit</field>
+        <field name="arch" type="xml">
+            <search string="Search Gross Profit">
+                <field name="category_items"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_category" string="Category" context="{'group_by': 'category_items'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_x_gross_profit" model="ir.actions.act_window">
+        <field name="name">Gross Profit</field>
+        <field name="res_model">x_gross.profit</field>
+        <field name="view_mode">list,pivot,graph</field>
+    </record>
+
+    <!-- ============================================ -->
+    <!-- 2. REKAP SO SAMPAI PAYMENT                   -->
+    <!-- ============================================ -->
+    
+    <!-- List View -->
+    <record id="view_x_rekap_so_payment_tree" model="ir.ui.view">
+        <field name="name">x.rekap.so.payment.tree</field>
+        <field name="model">x_rekap.so.payment</field>
+        <field name="arch" type="xml">
+            <list string="Rekap SO sampai Payment">
+                <field name="order_id" string="SO Number" widget="many2one" options="{'no_create': True}"/>
+                <field name="po_date"/>
+                <field name="partner_id" string="Customer" widget="many2one" options="{'no_create': True}"/>
+                <field name="company_name" optional="hide"/>
+                <field name="customer_po_number" optional="hide"/>
+                <field name="salesperson" optional="hide"/>
+                <field name="product_name"/>
+                <field name="qty"/>
+                <field name="price_unit"/>
+                <field name="subtotal" sum="Total"/>
+                <field name="tax_amount" sum="Total Tax" optional="hide"/>
+                <field name="total_amount" sum="Total with Tax" optional="hide"/>
+                <field name="picking_id" string="Delivery" widget="many2one" options="{'no_create': True}" optional="show"/>
+                <field name="delivery_number" optional="show"/>
+                <field name="delivery_date" optional="show"/>
+                <field name="delivery_status" optional="hide"/>
+                <field name="delivered_qty" optional="hide"/>
+                <field name="branch_delivery" optional="show"/>
+                <field name="receiver" optional="hide"/>
+                <field name="shipping_note" optional="hide"/>
+                <field name="invoice_status" optional="hide"/>
+                <field name="invoice_id" string="Invoice" widget="many2one" options="{'no_create': True}" optional="show"/>
+                <field name="invoice_number" optional="show"/>
+                <field name="invoice_date" optional="show"/>
+                <field name="payment_date" optional="show"/>
+                <field name="payment_state" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Pivot View -->
+    <record id="view_x_rekap_so_payment_pivot" model="ir.ui.view">
+        <field name="name">x.rekap.so.payment.pivot</field>
+        <field name="model">x_rekap.so.payment</field>
+        <field name="arch" type="xml">
+            <pivot string="Rekap SO Analysis">
+                <field name="po_date" type="col" interval="month"/>
+                <field name="customer" type="row"/>
+                <field name="subtotal" type="measure"/>
+                <field name="qty" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- Graph View -->
+    <record id="view_x_rekap_so_payment_graph" model="ir.ui.view">
+        <field name="name">x.rekap.so.payment.graph</field>
+        <field name="model">x_rekap.so.payment</field>
+        <field name="arch" type="xml">
+            <graph string="Sales Orders Analysis" type="line">
+                <field name="po_date" type="row" interval="month"/>
+                <field name="subtotal" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_x_rekap_so_payment_search" model="ir.ui.view">
+        <field name="name">x.rekap.so.payment.search</field>
+        <field name="model">x_rekap.so.payment</field>
+        <field name="arch" type="xml">
+            <search string="Search Rekap SO">
+                <field name="so_number"/>
+                <field name="customer"/>
+                <field name="company_name"/>
+                <field name="product_name"/>
+                <field name="salesperson"/>
+                <field name="delivery_number"/>
+                <field name="invoice_number"/>
+                <field name="customer_po_number"/>
+                <separator/>
+                <filter name="this_month" string="This Month" 
+                    domain="[('po_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="last_month" string="Last Month" 
+                    domain="[('po_date', '>=', (context_today() - relativedelta(months=1)).strftime('%%Y-%%m-01')),
+                             ('po_date', '&lt;', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="this_year" string="This Year" 
+                    domain="[('po_date', '>=', (context_today()).strftime('%%Y-01-01'))]"/>
+                <separator/>
+                <filter name="paid" string="Paid" 
+                    domain="[('payment_state', '!=', '')]"/>
+                <filter name="not_paid" string="Not Paid" 
+                    domain="[('payment_state', '=', '')]"/>
+                <filter name="delivered" string="Delivered" 
+                    domain="[('delivery_status', '=', 'done')]"/>
+                <filter name="invoiced" string="Invoiced" 
+                    domain="[('invoice_status', 'in', ['invoiced', 'upselling'])]"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_customer" string="Customer" context="{'group_by': 'customer'}"/>
+                    <filter name="group_by_salesperson" string="Salesperson" context="{'group_by': 'salesperson'}"/>
+                    <filter name="group_by_company" string="Company" context="{'group_by': 'company_name'}"/>
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'po_date:month'}"/>
+                    <filter name="group_by_year" string="Year" context="{'group_by': 'po_date:year'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_x_rekap_so_payment" model="ir.actions.act_window">
+        <field name="name">Rekap SO (sampai Payment)</field>
+        <field name="res_model">x_rekap.so.payment</field>
+        <field name="view_mode">list,pivot,graph</field>
+    </record>
+
+    <!-- ============================================ -->
+    <!-- 3. SALES CONTRIBUTION                        -->
+    <!-- ============================================ -->
+    
+    <!-- List View -->
+    <record id="view_x_sales_contribution_tree" model="ir.ui.view">
+        <field name="name">x.sales.contribution.tree</field>
+        <field name="model">x_sales.contribution</field>
+        <field name="arch" type="xml">
+            <list string="Sales Contribution">
+                <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
+                <field name="sales_amount" sum="Total Sales"/>
+                <field name="cogs" sum="Total COGS" optional="show"/>
+                <field name="gross_profit" sum="Total GP"/>
+                <field name="margin_percent" widget="percentage"/>
+                <field name="sales_contribution_percent" widget="percentage"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Pivot View -->
+    <record id="view_x_sales_contribution_pivot" model="ir.ui.view">
+        <field name="name">x.sales.contribution.pivot</field>
+        <field name="model">x_sales.contribution</field>
+        <field name="arch" type="xml">
+            <pivot string="Sales Contribution Analysis">
+                <field name="category" type="row"/>
+                <field name="sales_amount" type="measure"/>
+                <field name="cogs" type="measure"/>
+                <field name="gross_profit" type="measure"/>
+                <field name="margin_percent" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- Graph View -->
+    <record id="view_x_sales_contribution_graph" model="ir.ui.view">
+        <field name="name">x.sales.contribution.graph</field>
+        <field name="model">x_sales.contribution</field>
+        <field name="arch" type="xml">
+            <graph string="Sales Contribution Analysis" type="pie">
+                <field name="category" type="row"/>
+                <field name="sales_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_x_sales_contribution_search" model="ir.ui.view">
+        <field name="name">x.sales.contribution.search</field>
+        <field name="model">x_sales.contribution</field>
+        <field name="arch" type="xml">
+            <search string="Search Sales Contribution">
+                <field name="category"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_category" string="Category" context="{'group_by': 'category'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_x_sales_contribution" model="ir.actions.act_window">
+        <field name="name">Sales Contribution</field>
+        <field name="res_model">x_sales.contribution</field>
+        <field name="view_mode">list,pivot,graph</field>
+    </record>
+
+</odoo>

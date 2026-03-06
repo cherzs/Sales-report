@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Wizard View Form -->
+    <record id="view_x_sale_recap_export_excel_form" model="ir.ui.view">
+        <field name="name">x.sale.recap.export.excel.form</field>
+        <field name="model">x_sale.recap.export.excel</field>
+        <field name="arch" type="xml">
+            <form string="Export to Excel">
+                <group>
+                    <field name="report_type"/>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                </group>
+                <footer>
+                    <button name="action_export_xlsx" string="Export Excel" type="object" 
+                        class="btn-primary" icon="fa-file-excel-o"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

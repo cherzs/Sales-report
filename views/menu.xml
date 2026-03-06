@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Action for Export Wizard -->
+    <record id="action_x_sale_recap_export_excel" model="ir.actions.act_window">
+        <field name="name">Export to Excel</field>
+        <field name="res_model">x_sale.recap.export.excel</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu Root -->
+    <menuitem
+        id="menu_x_sale_recap_root"
+        name="Sales Recap"
+        parent="sale.sale_menu_root"
+        sequence="100"
+    />
+
+    <!-- 1. Gross Profit -->
+    <menuitem
+        id="menu_x_gross_profit"
+        name="Gross Profit"
+        parent="menu_x_sale_recap_root"
+        action="action_x_gross_profit"
+        sequence="10"
+    />
+
+    <!-- 2. Rekap SO (sampai Payment) -->
+    <menuitem
+        id="menu_x_rekap_so_payment"
+        name="Rekap SO"
+        parent="menu_x_sale_recap_root"
+        action="action_x_rekap_so_payment"
+        sequence="20"
+    />
+
+    <!-- 3. Sales Contribution -->
+    <menuitem
+        id="menu_x_sales_contribution"
+        name="Sales Contribution"
+        parent="menu_x_sale_recap_root"
+        action="action_x_sales_contribution"
+        sequence="30"
+    />
+
+    <!-- 4. Export to Excel -->
+    <menuitem
+        id="menu_x_sale_recap_export"
+        name="Export to Excel"
+        parent="menu_x_sale_recap_root"
+        action="action_x_sale_recap_export_excel"
+        sequence="40"
+    />
+
+</odoo>

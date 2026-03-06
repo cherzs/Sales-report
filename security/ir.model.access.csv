@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_x_gross_profit_user,Gross Profit User,sale_recap_report.model_x_gross_profit,base.group_user,1,0,0,0
+access_x_gross_profit_manager,Gross Profit Manager,sale_recap_report.model_x_gross_profit,sales_team.group_sale_manager,1,1,1,1
+access_x_rekap_so_payment_user,Rekap SO Payment User,sale_recap_report.model_x_rekap_so_payment,base.group_user,1,0,0,0
+access_x_rekap_so_payment_manager,Rekap SO Payment Manager,sale_recap_report.model_x_rekap_so_payment,sales_team.group_sale_manager,1,1,1,1
+access_x_sales_contribution_user,Sales Contribution User,sale_recap_report.model_x_sales_contribution,base.group_user,1,0,0,0
+access_x_sales_contribution_manager,Sales Contribution Manager,sale_recap_report.model_x_sales_contribution,sales_team.group_sale_manager,1,1,1,1
+access_x_sale_recap_export_excel_user,Sale Recap Export Excel User,sale_recap_report.model_x_sale_recap_export_excel,base.group_user,1,0,1,0
+access_x_sale_recap_export_excel_manager,Sale Recap Export Excel Manager,sale_recap_report.model_x_sale_recap_export_excel,sales_team.group_sale_manager,1,1,1,1
