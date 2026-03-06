@@ -88,41 +88,24 @@ def create_so(customer, lines, ref=None):
 
 def validate_picking(picking, qty_per_move=None):
     """
-    Validate a stock.picking.
-    qty_per_move: dict {move_id: qty} — if None, validate all at full qty.
-    Returns the picking after validation.
+    Validate a picking. Odoo 18: set move.quantity directly.
+    qty_per_move: dict {move_id: qty} for partial delivery.
     """
     picking.action_assign()  # reserve stock
 
     for move in picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel')):
-        qty = qty_per_move.get(move.id) if qty_per_move else move.product_uom_qty
-        if move.move_line_ids:
-            # Immediate transfer mode — update existing lines
-            total = sum(move.move_line_ids.mapped('reserved_qty'))
-            for line in move.move_line_ids:
-                line.quantity = min(qty, line.reserved_qty)
-                qty -= line.quantity
-        else:
-            # Create detail line manually
-            env['stock.move.line'].create({
-                'move_id': move.id,
-                'picking_id': picking.id,
-                'product_id': move.product_id.id,
-                'product_uom_id': move.product_uom.id,
-                'location_id': move.location_id.id,
-                'location_dest_id': move.location_dest_id.id,
-                'quantity': qty if qty_per_move else move.product_uom_qty,
-            })
+        qty = (qty_per_move or {}).get(move.id, move.product_uom_qty)
+        move.quantity = qty  # Odoo 18: sets done quantity directly
 
     result = picking.button_validate()
 
-    # Handle backorder wizard (Odoo 17/18)
+    # Handle backorder wizard
     if isinstance(result, dict) and result.get('res_model') == 'stock.backorder.confirmation':
         ctx = result.get('context', {})
         wiz = env['stock.backorder.confirmation'].with_context(**ctx).create({
             'pick_ids': [(4, picking.id)],
         })
-        wiz.process()  # confirm → create backorder
+        wiz.process()  # create backorder
 
     return picking
 
