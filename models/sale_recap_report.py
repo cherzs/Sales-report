@@ -151,14 +151,15 @@ class RekapSOPayment(models.Model):
             sql = """
                 CREATE OR REPLACE VIEW %s AS (
                     WITH product_names AS (
-                        SELECT 
-                            pt.id,
+                        -- Resolve multilang product name (jsonb or plain text)
+                        SELECT
+                            pt.id AS tmpl_id,
                             COALESCE(
                                 NULLIF(TRIM(
-                                    CASE 
-                                        WHEN LEFT(pt.name::text, 1) = '{' 
-                                        THEN pt.name->>'en_US' 
-                                        ELSE pt.name::text 
+                                    CASE
+                                        WHEN LEFT(pt.name::text, 1) = '{'
+                                        THEN pt.name->>'en_US'
+                                        ELSE pt.name::text
                                     END
                                 ), ''),
                                 ''
@@ -166,43 +167,71 @@ class RekapSOPayment(models.Model):
                         FROM product_template pt
                     ),
                     payment_data AS (
-                        SELECT 
-                            aml.move_id AS invoice_id,
-                            MIN(ap.date) AS first_payment_date,
-                            MAX(ap.date) AS last_payment_date,
+                        -- Earliest payment date per invoice via partial reconcile
+                        SELECT
+                            aml_inv.move_id                     AS invoice_id,
+                            MIN(ap.date)                        AS first_payment_date,
                             STRING_AGG(DISTINCT ap.state, ', ') AS payment_states
-                        FROM account_move_line aml
-                        INNER JOIN account_partial_reconcile apr ON apr.debit_move_id = aml.id OR apr.credit_move_id = aml.id
-                        INNER JOIN account_move_line aml2 ON 
-                            (apr.credit_move_id = aml2.id AND aml.id != aml2.id) OR 
-                            (apr.debit_move_id = aml2.id AND aml.id != aml2.id)
-                        INNER JOIN account_payment ap ON ap.move_id = aml2.move_id
+                        FROM account_move_line aml_inv
+                        INNER JOIN account_partial_reconcile apr
+                            ON apr.debit_move_id  = aml_inv.id
+                            OR apr.credit_move_id = aml_inv.id
+                        INNER JOIN account_move_line aml_pay
+                            ON (apr.credit_move_id = aml_pay.id AND aml_inv.id != aml_pay.id)
+                            OR (apr.debit_move_id  = aml_pay.id AND aml_inv.id != aml_pay.id)
+                        INNER JOIN account_payment ap ON ap.move_id = aml_pay.move_id
                         WHERE ap.state = 'posted'
-                        GROUP BY aml.move_id
+                        GROUP BY aml_inv.move_id
                     ),
                     delivery_data AS (
-                        SELECT 
-                            sp.origin AS so_name,
-                            sp.id AS picking_id,
-                            sp.name AS delivery_number,
-                            sp.date_done::date AS delivery_date,
-                            sp.state AS delivery_status,
-                            rp.name AS receiver,
-                            sp.note AS shipping_note,
-                            sl.name AS branch_name,
-                            SUM(sm.product_uom_qty) AS total_delivered_qty
-                        FROM stock_picking sp
+                        -- One row per (sale_order_line, stock_picking)
+                        -- Drives the multi-delivery rows in the final output
+                        -- Uses stock_move_line.qty_done for actual delivered quantity
+                        -- Filters only outgoing Done pickings
+                        SELECT
+                            sm.sale_line_id                    AS so_line_id,
+                            sp.id                              AS picking_id,
+                            sp.name                            AS delivery_number,
+                            sp.date_done::date                 AS delivery_date,
+                            sp.state                           AS delivery_status,
+                            rp.name                            AS receiver,
+                            sp.note                            AS shipping_note,
+                            sw.name                            AS branch_name,
+                            SUM(COALESCE(sml.qty_done, 0))     AS total_delivered_qty
+                        FROM stock_move sm
+                        INNER JOIN sale_order_line sol_chk ON sol_chk.id = sm.sale_line_id
+                            AND sol_chk.product_id = sm.product_id  -- ensure product match
+                        INNER JOIN stock_picking sp ON sp.id = sm.picking_id
+                        INNER JOIN stock_move_line sml ON sml.move_id = sm.id
                         LEFT JOIN res_partner rp ON rp.id = sp.partner_id
-                        LEFT JOIN stock_location sl ON sl.id = sp.location_id
-                        LEFT JOIN stock_move sm ON sm.picking_id = sp.id AND sm.state = 'done'
-                        WHERE sp.picking_type_id IN (
-                            SELECT id FROM stock_picking_type WHERE code = 'outgoing'
-                        )
-                        AND sp.state = 'done'
-                        GROUP BY sp.origin, sp.id, sp.name, sp.date_done, sp.state, rp.name, sp.note, sl.name
+                        LEFT JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
+                        LEFT JOIN stock_warehouse sw ON sw.id = spt.warehouse_id
+                        WHERE sm.sale_line_id IS NOT NULL
+                          AND sm.state = 'done'
+                          AND sp.state = 'done'
+                          AND spt.code = 'outgoing'
+                        GROUP BY
+                            sm.sale_line_id, sp.id, sp.name, sp.date_done,
+                            sp.state, rp.name, sp.note, sw.name
+                    ),
+                    invoice_data AS (
+                        -- Invoice linked via the junction table sale_order_line_invoice_rel
+                        -- This is the correct Odoo relation (sale_line_ids M2M)
+                        -- Supports: 1 Delivery → 1 Invoice AND N Deliveries → 1 Invoice
+                        SELECT DISTINCT
+                            rel.sale_line_id                   AS so_line_id,
+                            am.id                              AS invoice_id,
+                            am.name                            AS invoice_number,
+                            am.invoice_date                    AS invoice_date
+                        FROM sale_order_line_invoice_rel rel
+                        INNER JOIN account_move_line aml ON aml.id = rel.invoice_line_id
+                        INNER JOIN account_move am ON am.id = aml.move_id
+                        WHERE am.move_type = 'out_invoice'
+                          AND am.state     = 'posted'
                     )
                     SELECT
-                        sol.id AS id,
+                        -- Stable unique ID: sol.id * 10,000,000 + sp.id
+                        (sol.id::bigint * 10000000 + dd.picking_id::bigint) AS id,
                         so.id AS order_id,
                         so.name AS so_number,
                         so.date_order::date AS po_date,
@@ -230,25 +259,29 @@ class RekapSOPayment(models.Model):
                         COALESCE(NULLIF(TRIM(dd.receiver), ''), '') AS receiver,
                         COALESCE(dd.shipping_note, '') AS shipping_note,
                         COALESCE(so.invoice_status, '') AS invoice_status,
-                        am.id AS invoice_id,
-                        COALESCE(am.name, '') AS invoice_number,
-                        am.invoice_date AS invoice_date,
-                        COALESCE(pd.first_payment_date, pd.last_payment_date) AS payment_date,
+                        idata.invoice_id,
+                        COALESCE(idata.invoice_number, '') AS invoice_number,
+                        idata.invoice_date AS invoice_date,
+                        pd.first_payment_date AS payment_date,
                         COALESCE(pd.payment_states, '') AS payment_state
                     FROM sale_order_line sol
+                    -- SO
                     INNER JOIN sale_order so ON so.id = sol.order_id
+                    -- Multi-delivery: INNER JOIN ensures one row per (sol, picking)
+                    INNER JOIN delivery_data dd ON dd.so_line_id = sol.id
+                    -- Customer & Salesperson
                     LEFT JOIN res_partner rp ON rp.id = so.partner_id
                     LEFT JOIN res_users ru ON ru.id = so.user_id
                     LEFT JOIN res_partner rp_sales ON rp_sales.id = ru.partner_id
+                    -- Product name
                     LEFT JOIN product_product pp ON pp.id = sol.product_id
-                    LEFT JOIN product_names pn ON pn.id = pp.product_tmpl_id
-                    LEFT JOIN delivery_data dd ON dd.so_name = so.name
-                    LEFT JOIN account_move am ON am.invoice_origin = so.name 
-                        AND am.move_type = 'out_invoice'
-                        AND am.state = 'posted'
-                    LEFT JOIN payment_data pd ON pd.invoice_id = am.id
+                    LEFT JOIN product_names pn ON pn.tmpl_id = pp.product_tmpl_id
+                    -- Invoice via junction table
+                    LEFT JOIN invoice_data idata ON idata.so_line_id = sol.id
+                    -- Payment via partial reconcile
+                    LEFT JOIN payment_data pd ON pd.invoice_id = idata.invoice_id
                     WHERE so.state IN ('sale', 'done')
-                    ORDER BY so.date_order DESC, so.name, sol.sequence
+                    ORDER BY so.date_order DESC, so.name, sol.sequence, dd.delivery_number
                 )
             """ % self._table
             _logger.info("[REKAP_SO] SQL Query prepared")
