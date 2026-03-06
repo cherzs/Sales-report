@@ -76,7 +76,7 @@ class GrossProfit(models.Model):
                         SUM(sol.product_uom_qty * COALESCE((SELECT value::numeric FROM jsonb_each_text(pp.standard_price) LIMIT 1), 0)) AS cogs,
                         CASE 
                             WHEN SUM(sol.price_subtotal) > 0 
-                            THEN ((SUM(sol.price_subtotal) - SUM(sol.product_uom_qty * COALESCE((SELECT value::numeric FROM jsonb_each_text(pp.standard_price) LIMIT 1), 0))) / SUM(sol.price_subtotal)) * 100
+                            THEN ((SUM(sol.price_subtotal) - SUM(sol.product_uom_qty * COALESCE((SELECT value::numeric FROM jsonb_each_text(pp.standard_price) LIMIT 1), 0))) / SUM(sol.price_subtotal))
                             ELSE 0 
                         END AS gp_percent,
                         SUM(sol.price_subtotal) - SUM(sol.product_uom_qty * COALESCE((SELECT value::numeric FROM jsonb_each_text(pp.standard_price) LIMIT 1), 0)) AS total_gross_profit,
@@ -345,11 +345,11 @@ class SalesContribution(models.Model):
                         cs.cogs,
                         cs.gross_profit,
                         CASE 
-                            WHEN cs.sales_amount > 0 THEN (cs.gross_profit / cs.sales_amount) * 100 
+                            WHEN cs.sales_amount > 0 THEN (cs.gross_profit / cs.sales_amount) 
                             ELSE 0 
                         END AS margin_percent,
                         CASE 
-                            WHEN ts.total > 0 THEN (cs.sales_amount / ts.total) * 100 
+                            WHEN ts.total > 0 THEN (cs.sales_amount / ts.total) 
                             ELSE 0 
                         END AS sales_contribution_percent,
                         cs.so_date
@@ -504,7 +504,7 @@ class SaleRecapExportExcel(models.TransientModel):
             sheet.write(row, 1, rec.qty or 0, num_format)
             sheet.write(row, 2, rec.amount or 0, num_format)
             sheet.write(row, 3, rec.cogs or 0, num_format)
-            sheet.write(row, 4, (rec.gp_percent or 0) / 100, percent_format)
+            sheet.write(row, 4, rec.gp_percent or 0, percent_format)
             sheet.write(row, 5, rec.total_gross_profit or 0, num_format)
     
     def _export_rekap_so(self, workbook):
@@ -613,8 +613,8 @@ class SaleRecapExportExcel(models.TransientModel):
             sheet.write(row, 1, rec.sales_amount or 0, num_format)
             sheet.write(row, 2, rec.cogs or 0, num_format)
             sheet.write(row, 3, rec.gross_profit or 0, num_format)
-            sheet.write(row, 4, (rec.margin_percent or 0) / 100, percent_format)
-            sheet.write(row, 5, (rec.sales_contribution_percent or 0) / 100, percent_format)
+            sheet.write(row, 4, rec.margin_percent or 0, percent_format)
+            sheet.write(row, 5, rec.sales_contribution_percent or 0, percent_format)
             
             total_sales += rec.sales_amount or 0
             total_cogs += rec.cogs or 0
