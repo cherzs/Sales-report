@@ -197,7 +197,7 @@ class RekapSOPayment(models.Model):
                             rp.name                            AS receiver,
                             sp.note                            AS shipping_note,
                             sw.name                            AS branch_name,
-                            SUM(COALESCE(sml.qty_done, 0))     AS total_delivered_qty
+                            SUM(COALESCE(sml.quantity, 0))     AS total_delivered_qty
                         FROM stock_move sm
                         INNER JOIN sale_order_line sol_chk ON sol_chk.id = sm.sale_line_id
                             AND sol_chk.product_id = sm.product_id  -- ensure product match
