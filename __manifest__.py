@@ -47,7 +47,7 @@ This module fully replaces Excel-based reporting workflows.
         'base',
         'sale',
         'sale_management',
-        'sale_stock',       # Required: adds sale_line_id column to stock_move
+        'sale_stock',  
         'stock',
         'account',
     ],
