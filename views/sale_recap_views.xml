@@ -10,12 +10,12 @@
         <field name="name">x.gross.profit.tree</field>
         <field name="model">x_gross.profit</field>
         <field name="arch" type="xml">
-            <list string="Gross Profit">
+            <list string="Gross Profit" default_order="so_date desc">
+                <field name="so_date"/>
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="qty" sum="Total Qty"/>
                 <field name="amount" sum="Total Amount"/>
-                <field name="cogs" sum="Total COGS" optional="show"/>
-                <field name="gp_percent" widget="percentage" optional="show"/>
+                <field name="gp_percent" widget="percentage" help="GP % from Accounting (previous month)"/>
                 <field name="total_gross_profit" sum="Total GP"/>
             </list>
         </field>
@@ -27,10 +27,11 @@
         <field name="model">x_gross.profit</field>
         <field name="arch" type="xml">
             <pivot string="Gross Profit Analysis">
+                <field name="so_date" type="col" interval="month"/>
                 <field name="category_items" type="row"/>
                 <field name="qty" type="measure"/>
                 <field name="amount" type="measure"/>
-                <field name="cogs" type="measure"/>
+                <field name="gp_percent" type="measure" string="GP %% (Accounting Prev Month)"/>
                 <field name="total_gross_profit" type="measure"/>
             </pivot>
         </field>
@@ -55,55 +56,86 @@
         <field name="arch" type="xml">
             <search string="Search Gross Profit">
                 <field name="category_items"/>
+                <field name="so_date"/>
+                <separator/>
+                <filter name="this_month" string="This Month" 
+                    domain="[('so_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="last_month" string="Last Month" 
+                    domain="[('so_date', '>=', (context_today() - relativedelta(months=1)).strftime('%%Y-%%m-01')),
+                             ('so_date', '&lt;', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="this_year" string="This Year" 
+                    domain="[('so_date', '>=', (context_today()).strftime('%%Y-01-01'))]"/>
                 <separator/>
                 <group expand="0" string="Group By">
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category_items'}"/>
                 </group>
             </search>
         </field>
     </record>
 
-    <!-- Action -->
+    <!-- Action with default group by month -->
     <record id="action_x_gross_profit" model="ir.actions.act_window">
         <field name="name">Gross Profit</field>
         <field name="res_model">x_gross.profit</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="context">{'search_default_group_by_month': 1}</field>
     </record>
 
     <!-- ============================================ -->
     <!-- 2. REKAP SO SAMPAI PAYMENT                   -->
     <!-- ============================================ -->
     
-    <!-- List View -->
+    <!-- List View - Updated with new fields for 100% compliance -->
     <record id="view_x_rekap_so_payment_tree" model="ir.ui.view">
         <field name="name">x.rekap.so.payment.tree</field>
         <field name="model">x_rekap.so.payment</field>
         <field name="arch" type="xml">
             <list string="Rekap SO sampai Payment">
+                <!-- SO Info -->
                 <field name="order_id" string="SO Number" widget="many2one" options="{'no_create': True}"/>
                 <field name="po_date"/>
                 <field name="partner_id" string="Customer" widget="many2one" options="{'no_create': True}"/>
                 <field name="company_name" optional="hide"/>
                 <field name="customer_po_number" optional="hide"/>
                 <field name="salesperson" optional="hide"/>
+                
+                <!-- Product -->
                 <field name="product_name"/>
+                <field name="bundle_name" optional="show"/>
+                <field name="line_type" optional="hide"/>
                 <field name="qty"/>
                 <field name="price_unit"/>
                 <field name="subtotal" sum="Total"/>
                 <field name="tax_amount" sum="Total Tax" optional="hide"/>
                 <field name="total_amount" sum="Total with Tax" optional="hide"/>
+                
+                <!-- NEW: Delivery Date from SO -->
+                <field name="so_delivery_date" optional="hide"/>
+                
+                <!-- Delivery Order Info -->
                 <field name="picking_id" string="Delivery" widget="many2one" options="{'no_create': True}" optional="show"/>
                 <field name="delivery_number" optional="show"/>
                 <field name="delivery_date" optional="show"/>
                 <field name="delivery_status" optional="hide"/>
                 <field name="delivered_qty" optional="hide"/>
+                
+                <!-- NEW: Delivery Details -->
+                <field name="delivery_address" optional="hide"/>
                 <field name="branch_delivery" optional="show"/>
                 <field name="receiver" optional="hide"/>
+                <field name="franco" optional="hide"/>
+                <field name="incoterm" optional="show"/>
+                <field name="incoterm_location" optional="show"/>
                 <field name="shipping_note" optional="hide"/>
+                
+                <!-- Invoice -->
                 <field name="invoice_status" optional="hide"/>
                 <field name="invoice_id" string="Invoice" widget="many2one" options="{'no_create': True}" optional="show"/>
                 <field name="invoice_number" optional="show"/>
                 <field name="invoice_date" optional="show"/>
+                
+                <!-- Payment -->
                 <field name="payment_date" optional="show"/>
                 <field name="payment_state" optional="hide"/>
             </list>
@@ -168,10 +200,16 @@
                 <filter name="invoiced" string="Invoiced" 
                     domain="[('invoice_status', 'in', ['invoiced', 'upselling'])]"/>
                 <separator/>
+                <filter name="bundle_component" string="Bundle Component" 
+                    domain="[('line_type', '=', 'Bundle Component')]"/>
+                <filter name="standard_line" string="Standard Product" 
+                    domain="[('line_type', '=', 'Standard')]"/>
+                <separator/>
                 <group expand="0" string="Group By">
                     <filter name="group_by_customer" string="Customer" context="{'group_by': 'customer'}"/>
                     <filter name="group_by_salesperson" string="Salesperson" context="{'group_by': 'salesperson'}"/>
                     <filter name="group_by_company" string="Company" context="{'group_by': 'company_name'}"/>
+                    <filter name="group_by_branch" string="Branch Delivery" context="{'group_by': 'branch_delivery'}"/>
                     <filter name="group_by_month" string="Month" context="{'group_by': 'po_date:month'}"/>
                     <filter name="group_by_year" string="Year" context="{'group_by': 'po_date:year'}"/>
                 </group>
@@ -181,7 +219,7 @@
 
     <!-- Action -->
     <record id="action_x_rekap_so_payment" model="ir.actions.act_window">
-        <field name="name">Rekap SO (sampai Payment)</field>
+        <field name="name">Rekap SO sampai Payment</field>
         <field name="res_model">x_rekap.so.payment</field>
         <field name="view_mode">list,pivot,graph</field>
     </record>
@@ -196,6 +234,7 @@
         <field name="model">x_sales.contribution</field>
         <field name="arch" type="xml">
             <list string="Sales Contribution">
+                <field name="so_date"/>
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="sales_amount" sum="Total Sales"/>
                 <field name="cogs" sum="Total COGS" optional="show"/>
@@ -240,8 +279,18 @@
         <field name="arch" type="xml">
             <search string="Search Sales Contribution">
                 <field name="category"/>
+                <field name="so_date"/>
+                <separator/>
+                <filter name="this_month" string="This Month" 
+                    domain="[('so_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="last_month" string="Last Month" 
+                    domain="[('so_date', '>=', (context_today() - relativedelta(months=1)).strftime('%%Y-%%m-01')),
+                             ('so_date', '&lt;', (context_today()).strftime('%%Y-%%m-01'))]"/>
+                <filter name="this_year" string="This Year" 
+                    domain="[('so_date', '>=', (context_today()).strftime('%%Y-01-01'))]"/>
                 <separator/>
                 <group expand="0" string="Group By">
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category'}"/>
                 </group>
             </search>

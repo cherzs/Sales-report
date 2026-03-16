@@ -3,7 +3,7 @@
     'name': 'Sales Recap Report',
     'version': '18.0.4.1.0',
     'category': 'Sales',
-    'summary': '3 Report: Gross Profit, Rekap SO (sampai Payment), Sales Contribution',
+    'summary': '3 Report: Gross Profit, Rekap SO, Sales Contribution',
     'description': """
 Sales Recap Report
 ==================
@@ -41,7 +41,7 @@ Features:
 
 This module fully replaces Excel-based reporting workflows.
     """,
-    'author': 'PT Injani',
+    'author': 'Ghaly - zhafrang638@gmail.com',
     'website': 'https://www.injani.com/id/',
     'depends': [
         'base',
