@@ -80,7 +80,6 @@ class GrossProfit(models.Model):
     category_items = fields.Char(string='Category Items', readonly=True)
     qty = fields.Float(string='Qty', readonly=True)
     amount = fields.Float(string='Amount', readonly=True)
-    gp_percent = fields.Float(string='GP %', readonly=True)
     total_gross_profit = fields.Float(string='Total Gross Profit', readonly=True)
     # Date field for filtering - now using actual date instead of month truncation
     so_date = fields.Date(string='SO Date', readonly=True)

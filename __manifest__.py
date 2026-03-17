@@ -61,4 +61,5 @@ This module fully replaces Excel-based reporting workflows.
     'application': False,
     'auto_install': False,
     'license': 'LGPL-3',
+    'pre_init_hook': 'pre_init_hook',
 }
