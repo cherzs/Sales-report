@@ -97,7 +97,8 @@ class GrossProfit(models.Model):
     def init(self):
         _logger.info("[GROSS_PROFIT] Creating view %s", self._table)
         try:
-            tools.drop_view_if_exists(self.env.cr, self._table)
+            # Force drop view to ensure schema updates are applied
+            self.env.cr.execute("DROP VIEW IF EXISTS %s CASCADE" % self._table)
             sql = '''CREATE OR REPLACE VIEW %(table)s AS (
                     WITH pending_so AS (
                         -- SO yang BELUM di-DO
@@ -521,7 +522,8 @@ class SalesContribution(models.Model):
     def init(self):
         _logger.info("[SALES_CONTRIBUTION] Creating view %s", self._table)
         try:
-            tools.drop_view_if_exists(self.env.cr, self._table)
+            # Force drop view to ensure schema updates are applied
+            self.env.cr.execute("DROP VIEW IF EXISTS %s CASCADE" % self._table)
             sql = '''CREATE OR REPLACE VIEW %(table)s AS (
                     WITH category_sales AS (
                         SELECT
