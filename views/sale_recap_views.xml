@@ -13,8 +13,6 @@
             <list string="Gross Profit" default_order="so_date desc">
                 <field name="so_date"/>
                 <field name="so_month" optional="hide"/>
-
-                
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="qty" sum="Total Qty"/>
                 <field name="amount" sum="Total Amount"/>
@@ -60,7 +58,7 @@
             <search string="Search Gross Profit">
                 <field name="category_items"/>
                 <field name="so_date"/>
-                
+                <field name="so_month"/>
                 <separator/>
                 <filter name="today" string="Today" 
                     domain="[('so_date', '=', context_today())]"/>
@@ -76,7 +74,7 @@
                 <separator/>
                 <group expand="0" string="Group By">
                     <filter name="group_by_date" string="Date" context="{'group_by': 'so_date'}"/>
-                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category_items'}"/>
                 </group>
             </search>
@@ -250,6 +248,7 @@
         <field name="arch" type="xml">
             <list string="Sales Contribution" default_order="so_date desc">
                 <field name="so_date"/>
+                <field name="so_month" optional="hide"/>
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="sales_amount" sum="Total Sales"/>
                 <field name="cogs" sum="Total COGS" optional="show"/>
@@ -295,7 +294,7 @@
             <search string="Search Sales Contribution">
                 <field name="category"/>
                 <field name="so_date"/>
-                
+                <field name="so_month"/>
                 <separator/>
                 <filter name="today" string="Today" 
                     domain="[('so_date', '=', context_today())]"/>
@@ -311,7 +310,7 @@
                 <separator/>
                 <group expand="0" string="Group By">
                     <filter name="group_by_date" string="Date" context="{'group_by': 'so_date'}"/>
-                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category'}"/>
                 </group>
             </search>
