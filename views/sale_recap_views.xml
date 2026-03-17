@@ -12,6 +12,7 @@
         <field name="arch" type="xml">
             <list string="Gross Profit" default_order="so_date desc">
                 <field name="so_date"/>
+                <field name="so_month" optional="hide"/>
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="qty" sum="Total Qty"/>
                 <field name="amount" sum="Total Amount"/>
@@ -57,7 +58,12 @@
             <search string="Search Gross Profit">
                 <field name="category_items"/>
                 <field name="so_date"/>
+                <field name="so_month"/>
                 <separator/>
+                <filter name="today" string="Today" 
+                    domain="[('so_date', '=', context_today())]"/>
+                <filter name="this_week" string="This Week" 
+                    domain="[('so_date', '>=', (context_today() - relativedelta(days=7))), ('so_date', '&lt;=', context_today())]"/>
                 <filter name="this_month" string="This Month" 
                     domain="[('so_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
                 <filter name="last_month" string="Last Month" 
@@ -67,7 +73,8 @@
                     domain="[('so_date', '>=', (context_today()).strftime('%%Y-01-01'))]"/>
                 <separator/>
                 <group expand="0" string="Group By">
-                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
+                    <filter name="group_by_date" string="Date" context="{'group_by': 'so_date'}"/>
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category_items'}"/>
                 </group>
             </search>
@@ -182,7 +189,12 @@
                 <field name="delivery_number"/>
                 <field name="invoice_number"/>
                 <field name="customer_po_number"/>
+                <field name="po_date"/>
                 <separator/>
+                <filter name="today" string="Today" 
+                    domain="[('po_date', '=', context_today())]"/>
+                <filter name="this_week" string="This Week" 
+                    domain="[('po_date', '>=', (context_today() - relativedelta(days=7))), ('po_date', '&lt;=', context_today())]"/>
                 <filter name="this_month" string="This Month" 
                     domain="[('po_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
                 <filter name="last_month" string="Last Month" 
@@ -210,6 +222,7 @@
                     <filter name="group_by_salesperson" string="Salesperson" context="{'group_by': 'salesperson'}"/>
                     <filter name="group_by_company" string="Company" context="{'group_by': 'company_name'}"/>
                     <filter name="group_by_branch" string="Branch Delivery" context="{'group_by': 'branch_delivery'}"/>
+                    <filter name="group_by_date" string="Date" context="{'group_by': 'po_date'}"/>
                     <filter name="group_by_month" string="Month" context="{'group_by': 'po_date:month'}"/>
                     <filter name="group_by_year" string="Year" context="{'group_by': 'po_date:year'}"/>
                 </group>
@@ -233,8 +246,9 @@
         <field name="name">x.sales.contribution.tree</field>
         <field name="model">x_sales.contribution</field>
         <field name="arch" type="xml">
-            <list string="Sales Contribution">
+            <list string="Sales Contribution" default_order="so_date desc">
                 <field name="so_date"/>
+                <field name="so_month" optional="hide"/>
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="sales_amount" sum="Total Sales"/>
                 <field name="cogs" sum="Total COGS" optional="show"/>
@@ -280,7 +294,12 @@
             <search string="Search Sales Contribution">
                 <field name="category"/>
                 <field name="so_date"/>
+                <field name="so_month"/>
                 <separator/>
+                <filter name="today" string="Today" 
+                    domain="[('so_date', '=', context_today())]"/>
+                <filter name="this_week" string="This Week" 
+                    domain="[('so_date', '>=', (context_today() - relativedelta(days=7))), ('so_date', '&lt;=', context_today())]"/>
                 <filter name="this_month" string="This Month" 
                     domain="[('so_date', '>=', (context_today()).strftime('%%Y-%%m-01'))]"/>
                 <filter name="last_month" string="Last Month" 
@@ -290,7 +309,8 @@
                     domain="[('so_date', '>=', (context_today()).strftime('%%Y-01-01'))]"/>
                 <separator/>
                 <group expand="0" string="Group By">
-                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_date:month'}"/>
+                    <filter name="group_by_date" string="Date" context="{'group_by': 'so_date'}"/>
+                    <filter name="group_by_month" string="Month" context="{'group_by': 'so_month'}"/>
                     <filter name="group_by_category" string="Category" context="{'group_by': 'category'}"/>
                 </group>
             </search>

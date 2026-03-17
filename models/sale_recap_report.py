@@ -82,8 +82,10 @@ class GrossProfit(models.Model):
     amount = fields.Float(string='Amount', readonly=True)
     gp_percent = fields.Float(string='GP %', readonly=True)
     total_gross_profit = fields.Float(string='Total Gross Profit', readonly=True)
-    # Date field for filtering
+    # Date field for filtering - now using actual date instead of month truncation
     so_date = fields.Date(string='SO Date', readonly=True)
+    # Month field for grouping/reporting purposes
+    so_month = fields.Date(string='SO Month', readonly=True, help='First day of the month for grouping')
     # GP % from Accounting previous month
     gp_percent = fields.Float(string='GP %', readonly=True, help='GP % from Accounting data of previous month')
     # GP % from Accounting current month (for reference)
@@ -101,7 +103,7 @@ class GrossProfit(models.Model):
                         -- SO yang BELUM di-DO
                         SELECT DISTINCT
                             so.id AS order_id,
-                            DATE_TRUNC('month', so.date_order)::date AS order_month
+                            so.date_order::date AS order_date
                         FROM sale_order so
                         WHERE so.state IN ('sale', 'done')
                           AND (
@@ -129,11 +131,12 @@ class GrossProfit(models.Model):
                         -- Tambahkan 'Uncategorized' untuk product tanpa category
                         SELECT 'Uncategorized'::varchar AS category_items, NULL::int AS categ_id
                     ),
-                    monthly_amount AS (
-                        -- Amount dari SO yang belum di-DO per category per bulan
+                    daily_amount AS (
+                        -- Amount dari SO yang belum di-DO per category per tanggal (bukan per bulan)
                         SELECT
                             COALESCE(NULLIF(TRIM(pc.name), ''), 'Uncategorized') AS category_items,
                             MAX(pc.id) AS categ_id,
+                            so.date_order::date AS so_date,
                             DATE_TRUNC('month', so.date_order)::date AS so_month,
                             SUM(sol.product_uom_qty) AS qty,
                             SUM(sol.price_subtotal) AS amount
@@ -144,7 +147,7 @@ class GrossProfit(models.Model):
                         LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                         LEFT JOIN product_category pc ON pc.id = pt.categ_id
                         WHERE so.state IN ('sale', 'done')
-                        GROUP BY pc.id, pc.name, DATE_TRUNC('month', so.date_order)
+                        GROUP BY pc.id, pc.name, so.date_order::date, DATE_TRUNC('month', so.date_order)::date
                     ),
                     accounting_gp AS (
                         -- GP%% dari Accounting per category per bulan
@@ -173,49 +176,49 @@ class GrossProfit(models.Model):
                           AND am.state = 'posted'
                         GROUP BY pc.id, pc.name, DATE_TRUNC('month', am.invoice_date)
                     ),
-                    all_months AS (
-                        -- Ambil semua bulan unik dari SO yang pending
-                        SELECT DISTINCT DATE_TRUNC('month', so.date_order)::date AS so_month
-                        FROM sale_order so
-                        INNER JOIN pending_so pso ON pso.order_id = so.id
-                        WHERE so.state IN ('sale', 'done')
+                    all_dates AS (
+                        -- Ambil semua tanggal unik dari SO yang pending
+                        SELECT DISTINCT pso.order_date AS so_date
+                        FROM pending_so pso
                     ),
-                    category_month_combinations AS (
-                        -- Cross join semua category dengan semua bulan
+                    category_date_combinations AS (
+                        -- Cross join semua category dengan semua tanggal
                         SELECT 
                             ac.category_items,
                             ac.categ_id,
-                            am.so_month
+                            ad.so_date,
+                            DATE_TRUNC('month', ad.so_date)::date AS so_month
                         FROM all_categories ac
-                        CROSS JOIN all_months am
+                        CROSS JOIN all_dates ad
                     )
                     SELECT
                         ROW_NUMBER() OVER () AS id,
-                        cmc.category_items,
-                        cmc.categ_id,
-                        cmc.so_month AS so_date,
-                        COALESCE(ma.qty, 0) AS qty,
-                        COALESCE(ma.amount, 0) AS amount,
+                        cdc.category_items,
+                        cdc.categ_id,
+                        cdc.so_date AS so_date,
+                        cdc.so_month AS so_month,
+                        COALESCE(da.qty, 0) AS qty,
+                        COALESCE(da.amount, 0) AS amount,
                         -- GP%% dari Accounting bulan sebelumnya
                         COALESCE(agp_prev.gp_percent_accounting, 0) AS gp_percent,
                         -- Total GP dihitung dari Amount * GP%% Accounting
-                        COALESCE(ma.amount, 0) * COALESCE(agp_prev.gp_percent_accounting, 0) AS total_gross_profit,
+                        COALESCE(da.amount, 0) * COALESCE(agp_prev.gp_percent_accounting, 0) AS total_gross_profit,
                         -- GP%% Accounting bulan ini (untuk referensi)
                         COALESCE(agp_curr.gp_percent_accounting, 0) AS gp_percent_current_month
-                    FROM category_month_combinations cmc
-                    LEFT JOIN monthly_amount ma
-                        ON ma.category_items = cmc.category_items
-                        AND ma.categ_id = cmc.categ_id
-                        AND ma.so_month = cmc.so_month
+                    FROM category_date_combinations cdc
+                    LEFT JOIN daily_amount da
+                        ON da.category_items = cdc.category_items
+                        AND da.categ_id = cdc.categ_id
+                        AND da.so_date = cdc.so_date
                     LEFT JOIN accounting_gp agp_prev
-                        ON agp_prev.category_items = cmc.category_items
-                        AND agp_prev.categ_id = cmc.categ_id
-                        AND agp_prev.inv_month = cmc.so_month - INTERVAL '1 month'
+                        ON agp_prev.category_items = cdc.category_items
+                        AND agp_prev.categ_id = cdc.categ_id
+                        AND agp_prev.inv_month = cdc.so_month - INTERVAL '1 month'
                     LEFT JOIN accounting_gp agp_curr
-                        ON agp_curr.category_items = cmc.category_items
-                        AND agp_curr.categ_id = cmc.categ_id
-                        AND agp_curr.inv_month = cmc.so_month
-                    ORDER BY cmc.so_month DESC, cmc.category_items
+                        ON agp_curr.category_items = cdc.category_items
+                        AND agp_curr.categ_id = cdc.categ_id
+                        AND agp_curr.inv_month = cdc.so_month
+                    ORDER BY cdc.so_date DESC, cdc.category_items
                 )''' % {'table': self._table}
             self.env.cr.execute(sql)
             _logger.info("[GROSS_PROFIT] View %s created successfully", self._table)
@@ -499,7 +502,7 @@ class SalesContribution(models.Model):
     _name = 'x_sales.contribution'
     _description = 'Sales Contribution'
     _auto = False
-    _order = 'category'
+    _order = 'so_date desc, category'
     
     category = fields.Char(string='Category', readonly=True)
     sales_amount = fields.Float(string='Sales Amount', readonly=True)
@@ -507,8 +510,10 @@ class SalesContribution(models.Model):
     gross_profit = fields.Float(string='Gross Profit', readonly=True)
     margin_percent = fields.Float(string='Margin %', readonly=True)
     sales_contribution_percent = fields.Float(string='Sales Contribution %', readonly=True)
-    # Date field for filtering
+    # Date field for filtering - now using actual date
     so_date = fields.Date(string='SO Date', readonly=True)
+    # Month field for grouping/reporting purposes
+    so_month = fields.Date(string='SO Month', readonly=True, help='First day of the month for grouping')
     # Clickable reference
     categ_id = fields.Many2one('product.category', string='Category Ref', readonly=True)
     
@@ -522,17 +527,18 @@ class SalesContribution(models.Model):
                         SELECT
                             COALESCE(NULLIF(TRIM(pc.name), ''), 'Uncategorized') AS category,
                             COALESCE(MAX(pc.id), 0) AS categ_id,
+                            so.date_order::date AS so_date,
+                            DATE_TRUNC('month', so.date_order)::date AS so_month,
                             SUM(sol.price_subtotal) AS sales_amount,
                             SUM(sol.product_uom_qty * COALESCE(sol.purchase_price, 0)) AS cogs,
-                            SUM(sol.price_subtotal) - SUM(sol.product_uom_qty * COALESCE(sol.purchase_price, 0)) AS gross_profit,
-                            DATE_TRUNC('month', so.date_order)::date AS so_date
+                            SUM(sol.price_subtotal) - SUM(sol.product_uom_qty * COALESCE(sol.purchase_price, 0)) AS gross_profit
                         FROM sale_order_line sol
                         INNER JOIN sale_order so ON so.id = sol.order_id
                         LEFT JOIN product_product pp ON pp.id = sol.product_id
                         LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                         LEFT JOIN product_category pc ON pc.id = pt.categ_id
                         WHERE so.state IN ('sale', 'done')
-                        GROUP BY pc.id, pc.name, DATE_TRUNC('month', so.date_order)
+                        GROUP BY pc.id, pc.name, so.date_order::date, DATE_TRUNC('month', so.date_order)::date
                     ),
                     total_sales AS (
                         SELECT 
@@ -545,6 +551,8 @@ class SalesContribution(models.Model):
                         ROW_NUMBER() OVER () AS id,
                         cs.category,
                         cs.categ_id,
+                        cs.so_date,
+                        cs.so_month,
                         cs.sales_amount,
                         cs.cogs,
                         cs.gross_profit,
@@ -555,8 +563,7 @@ class SalesContribution(models.Model):
                         CASE 
                             WHEN ts.total > 0 THEN (cs.sales_amount / ts.total) 
                             ELSE 0 
-                        END AS sales_contribution_percent,
-                        cs.so_date
+                        END AS sales_contribution_percent
                     FROM category_sales cs
                     INNER JOIN total_sales ts ON ts.so_date = cs.so_date
                     ORDER BY cs.so_date DESC, cs.sales_amount DESC
@@ -590,7 +597,8 @@ class SaleRecapExportExcel(models.TransientModel):
     def default_get(self, fields_list):
         res = super(SaleRecapExportExcel, self).default_get(fields_list)
         today = fields.Date.context_today(self)
-        res['date_from'] = today.replace(day=1)
+        # Default to today only for specific date export
+        res['date_from'] = today
         res['date_to'] = today
         return res
     
@@ -701,23 +709,20 @@ class SaleRecapExportExcel(models.TransientModel):
             'italic': True, 'align': 'center', 'valign': 'vcenter'
         })
         
-        # Build period string based on date range
+        # Build period string based on date range - now showing specific dates
         if date_from and date_to:
-            # Same month
-            if date_from.strftime('%Y%m') == date_to.strftime('%Y%m'):
-                period_str = date_from.strftime('%B %Y')
-            # Same year, different month
-            elif date_from.year == date_to.year:
-                period_str = '%s - %s %s' % (date_from.strftime('%B'), date_to.strftime('%B'), date_to.year)
-            # Different year
+            if date_from == date_to:
+                # Single date
+                period_str = date_from.strftime('%d/%m/%Y')
             else:
-                period_str = '%s - %s' % (date_from.strftime('%B %Y'), date_to.strftime('%B %Y'))
+                # Date range with specific dates
+                period_str = '%s - %s' % (date_from.strftime('%d/%m/%Y'), date_to.strftime('%d/%m/%Y'))
         elif date_from:
-            period_str = 'FROM %s' % date_from.strftime('%B %Y')
+            period_str = 'FROM %s' % date_from.strftime('%d/%m/%Y')
         elif date_to:
-            period_str = 'UNTIL %s' % date_to.strftime('%B %Y')
+            period_str = 'UNTIL %s' % date_to.strftime('%d/%m/%Y')
         else:
-            period_str = fields.Date.today().strftime('%B %Y')
+            period_str = fields.Date.today().strftime('%d/%m/%Y')
         
         # Merge cells for header
         sheet.merge_range('A1:F1', company_name, company_format)
