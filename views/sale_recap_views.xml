@@ -16,7 +16,7 @@
                 <field name="categ_id" string="Category" widget="many2one" options="{'no_create': True}"/>
                 <field name="qty" sum="Total Qty"/>
                 <field name="amount" sum="Total Amount"/>
-                <field name="gp_percent" widget="percentage" help="GP % from Accounting (previous month)"/>
+                <field name="gp_percent" widget="percentage"/>
                 <field name="total_gross_profit" sum="Total GP"/>
             </list>
         </field>
