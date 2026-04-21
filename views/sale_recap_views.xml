@@ -108,6 +108,7 @@
                 <field name="salesperson" optional="hide"/>
                 
                 <!-- Product -->
+                <field name="product_code" optional="show"/>
                 <field name="product_name"/>
                 <field name="bundle_name" optional="show"/>
                 <field name="line_type" optional="hide"/>

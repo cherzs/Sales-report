@@ -9,6 +9,20 @@ import base64
 _logger = logging.getLogger(__name__)
 
 
+def _pg_column_exists(cr, table, column):
+    """True if *column* exists on *table* in the current schema (for optional addon fields)."""
+    cr.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = %s
+          AND column_name = %s
+        """,
+        (table, column),
+    )
+    return bool(cr.fetchone())
+
+
 class SaleOrderLine(models.Model):
     """Inherit Sale Order Line to add purchase_price field for COGS calculation"""
     _inherit = 'sale.order.line'
@@ -251,6 +265,7 @@ class RekapSOPayment(models.Model):
     # Product - Bundle/Kit Safe 
     # For Bundle: product_name = component name, bundle_name = bundle parent name
     # For Standard: product_name = product name, bundle_name = empty
+    product_code = fields.Char(string='Item Code', readonly=True)
     product_name = fields.Char(string='Product', readonly=True)
     bundle_name = fields.Char(string='Bundle Name', readonly=True, help='Parent bundle name if this is a bundle component')
     line_type = fields.Char(string='Line Type', readonly=True, help='Standard or Bundle')
@@ -286,8 +301,23 @@ class RekapSOPayment(models.Model):
         _logger.info("[REKAP_SO] Creating view %s", self._table)
         try:
             tools.drop_view_if_exists(self.env.cr, self._table)
+            # fjr_sales_bundle adds stock_move.sale_bundle_line_id; omit if module not installed
+            has_bundle_line = _pg_column_exists(
+                self.env.cr, "stock_move", "sale_bundle_line_id"
+            )
+            line_type_sql = (
+                """CASE
+                                WHEN sm.sale_bundle_line_id IS NOT NULL THEN 'Bundle'
+                                ELSE 'Standard'
+                            END"""
+                if has_bundle_line
+                else "'Standard'::character varying"
+            )
+            group_by_bundle_sql = (
+                ", sm.sale_bundle_line_id" if has_bundle_line else ""
+            )
             sql = """
-                CREATE OR REPLACE VIEW %s AS (
+                CREATE OR REPLACE VIEW %(table)s AS (
                     WITH product_names AS (
                         -- Resolve multilang product name (jsonb or plain text)
                         SELECT
@@ -339,16 +369,21 @@ class RekapSOPayment(models.Model):
                             sp.name                            AS delivery_number,
                             sp.date_done::date                 AS delivery_date,
                             sp.state                           AS delivery_status,
-                            sp.note                            AS shipping_note,
+                            TRIM(
+                                REGEXP_REPLACE(
+                                    COALESCE(sp.note, ''),
+                                    '<[^>]+>',
+                                    '',
+                                    'g'
+                                )
+                            )                                  AS shipping_note,
                             sw.name                            AS branch_name,
                             -- Product ID from stock_move (component for bundle, product itself for standard)
                             sm.product_id                      AS move_product_id,
+                            pp.default_code                    AS move_product_code,
                             pn.product_name                    AS move_product_name,
                             -- Check if this is a bundle component
-                            CASE 
-                                WHEN sm.sale_bundle_line_id IS NOT NULL THEN 'Bundle'
-                                ELSE 'Standard'
-                            END                                AS line_type,
+                            %(line_type_sql)s                  AS line_type,
                             -- Qty delivered for this specific product/component
                             SUM(COALESCE(sml.quantity, 0))     AS total_delivered_qty
                         FROM stock_move sm
@@ -366,7 +401,7 @@ class RekapSOPayment(models.Model):
                         GROUP BY
                             sm.sale_line_id, sp.id, sp.partner_id, sp.name, sp.date_done,
                             sp.state, sp.note, sw.name,
-                            sm.product_id, pn.product_name, sm.sale_bundle_line_id
+                            sm.product_id, pp.default_code, pn.product_name%(group_by_bundle_sql)s
                     ),
                     invoice_data AS (
                         -- Invoice linked via the junction table sale_order_line_invoice_rel
@@ -403,6 +438,8 @@ class RekapSOPayment(models.Model):
                         ) AS company_name,
                         COALESCE(NULLIF(TRIM(so.client_order_ref), ''), '') AS customer_po_number,
                         COALESCE(NULLIF(TRIM(rp_sales.name), ''), '') AS salesperson,
+                        COALESCE(NULLIF(TRIM(dd.move_product_code), ''), 
+                                 NULLIF(TRIM(pp_sol.default_code), ''), '') AS product_code,
                         -- Product name: For bundle = component name, For standard = SO line product
                         -- This shows actual delivered product in report
                         COALESCE(NULLIF(TRIM(dd.move_product_name), ''), 
@@ -486,7 +523,11 @@ class RekapSOPayment(models.Model):
                     WHERE so.state IN ('sale', 'done')
                     ORDER BY so.date_order DESC, so.name, sol.sequence, dd.delivery_number
                 )
-            """ % self._table
+            """ % {
+                "table": self._table,
+                "line_type_sql": line_type_sql,
+                "group_by_bundle_sql": group_by_bundle_sql,
+            }
             _logger.info("[REKAP_SO] SQL Query prepared")
             self.env.cr.execute(sql)
             _logger.info("[REKAP_SO] View %s created successfully", self._table)
@@ -796,7 +837,15 @@ class SaleRecapExportExcel(models.TransientModel):
         # Column order follows: SO Info → Product → Financial → Delivery (SO) → Delivery (DO) → Invoice → Payment
         headers = [
             'SO Number', 'PO Date', 'Customer', 'Company', 'Customer PO', 'Salesperson',
-            'Product', 'Bundle Name', 'Line Type', 'Qty', 'Price Unit', 'Subtotal (Before Tax)', 'Tax', 'Total Amount',
+            'Item Code',                     # From product_product.default_code
+            'Product',                       # Resolved name
+            'Bundle Name',                   # Parent bundle name
+            'Line Type',                     # Standard/Bundle
+            'Qty',                           # Ordered qty
+            'Price Unit',                    # Unit price
+            'Subtotal (Before Tax)',         # Subtotal
+            'Tax',                           # Tax amount
+            'Total Amount',                  # Total with tax
             'Delivery Date (SO)',           # NEW: From sale_order.commitment_date
             'Delivery No',                   # From stock_picking.name
             'Delivery Date (DO)',            # RENAMED: From stock_picking.date_done
@@ -823,14 +872,15 @@ class SaleRecapExportExcel(models.TransientModel):
         # Set specific column widths
         sheet.set_column(2, 2, 20)   # Customer
         sheet.set_column(4, 4, 18)   # Customer PO
-        sheet.set_column(6, 6, 25)   # Product
-        sheet.set_column(7, 7, 25)   # Component (Kit)
-        sheet.set_column(8, 8, 15)   # Line Type
-        sheet.set_column(19, 19, 25) # Delivery Address
-        sheet.set_column(22, 22, 15) # Franco
-        sheet.set_column(23, 23, 15) # Incoterm
-        sheet.set_column(24, 24, 20) # Incoterm Location
-        sheet.set_column(25, 25, 20) # Shipping Note
+        sheet.set_column(6, 6, 15)   # Item Code
+        sheet.set_column(7, 7, 25)   # Product
+        sheet.set_column(8, 8, 25)   # Component (Kit)
+        sheet.set_column(9, 9, 15)   # Line Type
+        sheet.set_column(20, 20, 25) # Delivery Address
+        sheet.set_column(23, 23, 15) # Franco
+        sheet.set_column(24, 24, 15) # Incoterm
+        sheet.set_column(25, 25, 20) # Incoterm Location
+        sheet.set_column(26, 26, 20) # Shipping Note
         
         # Build domain for date filtering
         domain = []
@@ -851,42 +901,43 @@ class SaleRecapExportExcel(models.TransientModel):
             sheet.write(row, 4, rec.customer_po_number or '', cell_format)
             sheet.write(row, 5, rec.salesperson or '', cell_format)
             
-            # Product & Financial (6-13)
-            sheet.write(row, 6, rec.product_name or '', cell_format)
-            sheet.write(row, 7, rec.bundle_name or '', cell_format)
-            sheet.write(row, 8, rec.line_type or 'Standard', cell_format)
-            sheet.write(row, 9, rec.qty or 0, num_format)
-            sheet.write(row, 10, rec.price_unit or 0, num_format)
-            sheet.write(row, 11, rec.subtotal or 0, num_format)
-            sheet.write(row, 12, rec.tax_amount or 0, num_format)
-            sheet.write(row, 13, rec.total_amount or 0, num_format)
+            # Product & Financial (6-14)
+            sheet.write(row, 6, rec.product_code or '', cell_format)
+            sheet.write(row, 7, rec.product_name or '', cell_format)
+            sheet.write(row, 8, rec.bundle_name or '', cell_format)
+            sheet.write(row, 9, rec.line_type or 'Standard', cell_format)
+            sheet.write(row, 10, rec.qty or 0, num_format)
+            sheet.write(row, 11, rec.price_unit or 0, num_format)
+            sheet.write(row, 12, rec.subtotal or 0, num_format)
+            sheet.write(row, 13, rec.tax_amount or 0, num_format)
+            sheet.write(row, 14, rec.total_amount or 0, num_format)
             
-            # Delivery SO (14)
-            sheet.write_datetime(row, 14, rec.so_delivery_date, date_format) if rec.so_delivery_date else sheet.write(row, 14, '', cell_format)
+            # Delivery SO (15)
+            sheet.write_datetime(row, 15, rec.so_delivery_date, date_format) if rec.so_delivery_date else sheet.write(row, 15, '', cell_format)
             
-            # Delivery DO (15-18)
-            sheet.write(row, 15, rec.delivery_number or '', cell_format)
-            sheet.write_datetime(row, 16, rec.delivery_date, date_format) if rec.delivery_date else sheet.write(row, 16, '', cell_format)
-            sheet.write(row, 17, self._map_delivery_status(rec.delivery_status), cell_format)
-            sheet.write(row, 18, rec.delivered_qty or 0, num_format)
+            # Delivery DO (16-19)
+            sheet.write(row, 16, rec.delivery_number or '', cell_format)
+            sheet.write_datetime(row, 17, rec.delivery_date, date_format) if rec.delivery_date else sheet.write(row, 17, '', cell_format)
+            sheet.write(row, 18, self._map_delivery_status(rec.delivery_status), cell_format)
+            sheet.write(row, 19, rec.delivered_qty or 0, num_format)
             
-            # Delivery Details (19-25)
-            sheet.write(row, 19, rec.delivery_address or '', cell_format)
-            sheet.write(row, 20, rec.branch_delivery or '', cell_format)
-            sheet.write(row, 21, rec.receiver or '', cell_format)
-            sheet.write(row, 22, rec.franco or '', cell_format)
-            sheet.write(row, 23, rec.incoterm or '', cell_format)
-            sheet.write(row, 24, rec.incoterm_location or '', cell_format)
-            sheet.write(row, 25, rec.shipping_note or '', cell_format)
+            # Delivery Details (20-26)
+            sheet.write(row, 20, rec.delivery_address or '', cell_format)
+            sheet.write(row, 21, rec.branch_delivery or '', cell_format)
+            sheet.write(row, 22, rec.receiver or '', cell_format)
+            sheet.write(row, 23, rec.franco or '', cell_format)
+            sheet.write(row, 24, rec.incoterm or '', cell_format)
+            sheet.write(row, 25, rec.incoterm_location or '', cell_format)
+            sheet.write(row, 26, rec.shipping_note or '', cell_format)
             
-            # Invoice (26-28)
-            sheet.write(row, 26, self._map_invoice_status(rec.invoice_status), cell_format)
-            sheet.write(row, 27, rec.invoice_number or '', cell_format)
-            sheet.write_datetime(row, 28, rec.invoice_date, date_format) if rec.invoice_date else sheet.write(row, 28, '', cell_format)
+            # Invoice (27-29)
+            sheet.write(row, 27, self._map_invoice_status(rec.invoice_status), cell_format)
+            sheet.write(row, 28, rec.invoice_number or '', cell_format)
+            sheet.write_datetime(row, 29, rec.invoice_date, date_format) if rec.invoice_date else sheet.write(row, 29, '', cell_format)
             
-            # Payment (29-30)
-            sheet.write(row, 29, self._map_payment_state(rec.payment_state), cell_format)
-            sheet.write_datetime(row, 30, rec.payment_date, date_format) if rec.payment_date else sheet.write(row, 30, '', cell_format)
+            # Payment (30-31)
+            sheet.write(row, 30, self._map_payment_state(rec.payment_state), cell_format)
+            sheet.write_datetime(row, 31, rec.payment_date, date_format) if rec.payment_date else sheet.write(row, 31, '', cell_format)
     
     def _export_sales_contribution(self, workbook):
         sheet = workbook.add_worksheet('Sales Contribution')
