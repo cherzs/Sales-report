@@ -9,6 +9,38 @@ import base64
 _logger = logging.getLogger(__name__)
 
 
+class SqlViewMixin:
+    """Mixin for _auto=False models to fix web_read id.origin AttributeError in Odoo 17.
+
+    Odoo's web_read cleanup calls vals['id'].origin assuming a NewId object,
+    but SQL view models return plain integers. We override web_read entirely
+    to bypass the buggy cleanup function.
+    """
+
+    def web_read(self, specification):
+        if not self:
+            return []
+
+        field_names = [f for f in specification if f in self._fields and f != 'id']
+        records_data = self.read(field_names) if field_names else []
+        id_to_vals = {vals['id']: vals for vals in records_data}
+
+        result = []
+        for rec_id in self._ids:
+            vals = id_to_vals.get(rec_id, {})
+            entry = {'id': rec_id}
+            for fname in field_names:
+                field = self._fields.get(fname)
+                fval = vals.get(fname)
+                if field and field.type == 'many2one':
+                    entry[fname] = {'id': fval[0], 'display_name': fval[1]} if fval else False
+                else:
+                    entry[fname] = fval
+            result.append(entry)
+
+        return result
+
+
 def _pg_column_exists(cr, table, column):
     """True if *column* exists on *table* in the current schema (for optional addon fields)."""
     cr.execute(
@@ -83,9 +115,9 @@ class AccountBankStatementLine(models.Model):
     )
 
 
-class GrossProfit(models.Model):
+class GrossProfit(SqlViewMixin, models.Model):
     """1. Gross Profit Report - Only Delivered SO with Last Month Comparison"""
-    
+
     _name = 'x_gross.profit'
     _description = 'Gross Profit'
     _auto = False
@@ -241,9 +273,9 @@ class GrossProfit(models.Model):
             raise
 
 
-class RekapSOPayment(models.Model):
+class RekapSOPayment(SqlViewMixin, models.Model):
     """2. Rekap SO sampai Payment - 100% Compliance with Requirements"""
-    
+
     _name = 'x_rekap.so.payment'
     _description = 'Rekap SO sampai Payment'
     _auto = False
@@ -537,9 +569,9 @@ class RekapSOPayment(models.Model):
             raise
 
 
-class SalesContribution(models.Model):
+class SalesContribution(SqlViewMixin, models.Model):
     """3. Sales Contribution Report - Fixed with proper COGS calculation"""
-    
+
     _name = 'x_sales.contribution'
     _description = 'Sales Contribution'
     _auto = False
@@ -632,14 +664,16 @@ class SaleRecapExportExcel(models.TransientModel):
         ('all', 'All Combined'),
     ], string='Report Type', required=True, default='all')
     
-    date_from = fields.Date(string='Date From', required=True)
-    date_to = fields.Date(string='Date To', required=True)
+    # GP uses single as_of_date; other reports use date_from/date_to
+    as_of_date = fields.Date(string='As Of Date', help='Single date for Gross Profit report (data from 1st of month up to this date)')
+    date_from = fields.Date(string='Date From')
+    date_to = fields.Date(string='Date To')
     
     @api.model
     def default_get(self, fields_list):
         res = super(SaleRecapExportExcel, self).default_get(fields_list)
         today = fields.Date.context_today(self)
-        # Default to today only for specific date export
+        res['as_of_date'] = today
         res['date_from'] = today
         res['date_to'] = today
         return res
@@ -693,8 +727,15 @@ class SaleRecapExportExcel(models.TransientModel):
     def action_export_xlsx(self):
         """Generate XLSX report"""
         self.ensure_one()
-        _logger.info("[EXPORT] Starting export for report_type: %s, date_from: %s, date_to: %s", 
-                     self.report_type, self.date_from, self.date_to)
+        _logger.info("[EXPORT] Starting export for report_type: %s, as_of_date: %s, date_from: %s, date_to: %s", 
+                     self.report_type, self.as_of_date, self.date_from, self.date_to)
+
+        # Validation
+        if self.report_type in ('gross_profit', 'all') and not self.as_of_date:
+            raise UserError('Please set the AS OF Date for Gross Profit report.')
+        if self.report_type in ('rekap_so', 'sales_contribution', 'all'):
+            if not self.date_from or not self.date_to:
+                raise UserError('Please set Date From and Date To for this report.')
         
         try:
             import xlsxwriter
@@ -777,12 +818,32 @@ class SaleRecapExportExcel(models.TransientModel):
         sheet.set_row(2, 20)
     
     def _export_gross_profit(self, workbook):
+        import calendar
+        from collections import OrderedDict
+
         sheet = workbook.add_worksheet('Gross Profit')
-        
-        # Write header with date range
-        self._write_excel_header(sheet, workbook, 'GROSS PROFIT REPORT', self.env.company.name, 
-                                 self.date_from, self.date_to)
-        
+
+        # Determine as_of_date (single date for GP)
+        as_of_date = self.as_of_date or fields.Date.context_today(self)
+
+        # Write header with AS OF date
+        company_format = workbook.add_format({
+            'bold': True, 'font_size': 14, 'align': 'center', 'valign': 'vcenter'
+        })
+        title_format = workbook.add_format({
+            'bold': True, 'font_size': 12, 'align': 'center', 'valign': 'vcenter'
+        })
+        date_format_hdr = workbook.add_format({
+            'italic': True, 'align': 'center', 'valign': 'vcenter'
+        })
+
+        sheet.merge_range('A1:F1', self.env.company.name, company_format)
+        sheet.merge_range('A2:F2', 'GROSS PROFIT REPORT', title_format)
+        sheet.merge_range('A3:F3', 'AS OF: %s' % as_of_date.strftime('%d/%m/%Y'), date_format_hdr)
+        sheet.set_row(0, 25)
+        sheet.set_row(1, 22)
+        sheet.set_row(2, 20)
+
         # Formats
         header_format = workbook.add_format({
             'bold': True, 'bg_color': '#4472C4', 'font_color': 'white',
@@ -791,31 +852,102 @@ class SaleRecapExportExcel(models.TransientModel):
         cell_format = workbook.add_format({'border': 1, 'valign': 'vcenter'})
         num_format = workbook.add_format({'border': 1, 'num_format': '#,##0', 'valign': 'vcenter'})
         percent_format = workbook.add_format({'border': 1, 'num_format': '0.00%', 'valign': 'vcenter'})
-        
+        total_label_format = workbook.add_format({
+            'bold': True, 'border': 1, 'bg_color': '#D9E2F3', 'valign': 'vcenter'
+        })
+        total_num_format = workbook.add_format({
+            'bold': True, 'border': 1, 'num_format': '#,##0', 'bg_color': '#D9E2F3', 'valign': 'vcenter'
+        })
+        summary_label_format = workbook.add_format({
+            'bold': True, 'font_size': 11, 'valign': 'vcenter'
+        })
+        summary_num_format = workbook.add_format({
+            'bold': True, 'font_size': 11, 'num_format': '#,##0', 'valign': 'vcenter'
+        })
+
         # Headers - starting from row 5 (after header section)
         headers = ['Category Items', 'Qty', 'Amount', 'GP % (Accounting Prev Month)', 'Total Gross Profit']
         for col, header in enumerate(headers):
             sheet.write(5, col, header, header_format)
             sheet.set_column(col, col, 18)
-        sheet.set_column(0, 0, 25)  # Category column wider
-        sheet.set_column(3, 3, 28)  # GP % column wider
-        
-        # Build domain for date filtering
-        domain = []
-        if self.date_from:
-            domain.append(('so_date', '>=', self.date_from))
-        if self.date_to:
-            domain.append(('so_date', '<=', self.date_to))
-        
-        # Data
+        sheet.set_column(0, 0, 25)
+        sheet.set_column(3, 3, 28)
+
+        # Build domain: from 1st of as_of_date month up to as_of_date
+        first_of_month = as_of_date.replace(day=1)
+        domain = [
+            ('so_date', '>=', first_of_month),
+            ('so_date', '<=', as_of_date),
+        ]
+
+        # Fetch records and AGGREGATE per category to eliminate duplicates
         records = self.env['x_gross.profit'].search(domain)
-        _logger.info("[EXPORT] Gross Profit records: %s", len(records))
-        for row, rec in enumerate(records, 6):
-            sheet.write(row, 0, rec.category_items or '', cell_format)
-            sheet.write(row, 1, rec.qty or 0, num_format)
-            sheet.write(row, 2, rec.amount or 0, num_format)
-            sheet.write(row, 3, rec.gp_percent or 0, percent_format)
-            sheet.write(row, 4, rec.total_gross_profit or 0, num_format)
+        _logger.info("[EXPORT] Gross Profit raw records: %s", len(records))
+
+        # Aggregate: group by category_items, sum qty/amount/total_gross_profit,
+        # use weighted average for gp_percent (weighted by amount)
+        category_data = OrderedDict()
+        for rec in records:
+            cat = rec.category_items or 'Uncategorized'
+            if cat not in category_data:
+                category_data[cat] = {
+                    'qty': 0.0,
+                    'amount': 0.0,
+                    'total_gross_profit': 0.0,
+                }
+            category_data[cat]['qty'] += rec.qty or 0.0
+            category_data[cat]['amount'] += rec.amount or 0.0
+            category_data[cat]['total_gross_profit'] += rec.total_gross_profit or 0.0
+
+        # Write aggregated data - skip categories with zero amount
+        row = 6
+        total_sales = 0.0
+        total_gp = 0.0
+        for cat, data in category_data.items():
+            if data['amount'] == 0 and data['qty'] == 0:
+                continue  # Skip empty categories
+            gp_pct = (data['total_gross_profit'] / data['amount']) if data['amount'] else 0.0
+            sheet.write(row, 0, cat, cell_format)
+            sheet.write(row, 1, data['qty'], num_format)
+            sheet.write(row, 2, data['amount'], num_format)
+            sheet.write(row, 3, gp_pct, percent_format)
+            sheet.write(row, 4, data['total_gross_profit'], num_format)
+            total_sales += data['amount']
+            total_gp += data['total_gross_profit']
+            row += 1
+
+        _logger.info("[EXPORT] Gross Profit aggregated categories: %s", len([v for v in category_data.values() if v['amount'] or v['qty']]))
+
+        # Total row
+        row += 1
+        sheet.write(row, 0, 'TOTAL', total_label_format)
+        sheet.write(row, 1, '', total_label_format)
+        sheet.write(row, 2, total_sales, total_num_format)
+        sheet.write(row, 3, (total_gp / total_sales) if total_sales else 0, workbook.add_format({
+            'bold': True, 'border': 1, 'num_format': '0.00%', 'bg_color': '#D9E2F3', 'valign': 'vcenter'
+        }))
+        sheet.write(row, 4, total_gp, total_num_format)
+
+        # Summary section below table
+        row += 2
+        sheet.write(row, 0, 'Total Sales', summary_label_format)
+        sheet.write(row, 1, total_sales, summary_num_format)
+        row += 1
+
+        # Sales Estimate = daily_avg * days_in_month
+        day_of_month = as_of_date.day
+        days_in_month = calendar.monthrange(as_of_date.year, as_of_date.month)[1]
+        daily_avg = total_sales / day_of_month if day_of_month > 0 else 0.0
+        sales_estimate = daily_avg * days_in_month
+
+        sheet.write(row, 0, 'Sales Estimate (Full Month)', summary_label_format)
+        sheet.write(row, 1, sales_estimate, summary_num_format)
+        row += 1
+        sheet.write(row, 0, '  Daily Avg (%d days)' % day_of_month, workbook.add_format({'italic': True, 'valign': 'vcenter'}))
+        sheet.write(row, 1, daily_avg, workbook.add_format({'italic': True, 'num_format': '#,##0', 'valign': 'vcenter'}))
+        row += 1
+        sheet.write(row, 0, '  Days in Month', workbook.add_format({'italic': True, 'valign': 'vcenter'}))
+        sheet.write(row, 1, days_in_month, workbook.add_format({'italic': True, 'valign': 'vcenter'}))
     
     def _export_rekap_so(self, workbook):
         sheet = workbook.add_worksheet('Rekap SO Payment')

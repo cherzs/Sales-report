@@ -9,8 +9,15 @@
             <form string="Export to Excel">
                 <group>
                     <field name="report_type"/>
-                    <field name="date_from"/>
-                    <field name="date_to"/>
+                    <field name="as_of_date" string="AS OF Date"
+                        invisible="report_type not in ('gross_profit', 'all')"
+                        required="report_type in ('gross_profit', 'all')"/>
+                    <field name="date_from"
+                        invisible="report_type == 'gross_profit'"
+                        required="report_type in ('rekap_so', 'sales_contribution', 'all')"/>
+                    <field name="date_to"
+                        invisible="report_type == 'gross_profit'"
+                        required="report_type in ('rekap_so', 'sales_contribution', 'all')"/>
                 </group>
                 <footer>
                     <button name="action_export_xlsx" string="Export Excel" type="object" 

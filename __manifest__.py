@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Sales Recap Report',
-    'version': '18.0.4.1.0',
+    'version': '18.0.4.1.2',
     'category': 'Sales',
     'summary': '3 Report: Gross Profit, Rekap SO, Sales Contribution',
     'description': """
