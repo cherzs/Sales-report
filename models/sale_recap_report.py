@@ -67,6 +67,12 @@ class SaleOrderLine(models.Model):
         help='Product cost price at the time of sale (used for GP calculation)'
     )
     
+    bundle_display = fields.Char(
+        string='Bundle Items',
+        compute='_compute_bundle_display',
+        help='Bundle component items: [code] product name'
+    )
+    
     @api.depends('product_id', 'order_id.state')
     def _compute_purchase_price(self):
         for line in self:
@@ -75,6 +81,27 @@ class SaleOrderLine(models.Model):
                 line.purchase_price = line.product_id.standard_price
             else:
                 line.purchase_price = 0.0
+    
+    def _compute_bundle_display(self):
+        for line in self:
+            line.bundle_display = ''
+            try:
+                bundle_lines = line.bundle_line_ids
+                if bundle_lines:
+                    items = []
+                    for bl in bundle_lines:
+                        try:
+                            code = bl.product_id.default_code or ''
+                            name = bl.product_id.name or ''
+                        except Exception:
+                            continue
+                        if code:
+                            items.append('[%s] %s' % (code, name))
+                        else:
+                            items.append(name)
+                    line.bundle_display = ', '.join(items)
+            except Exception:
+                pass
 
 
 class SaleOrder(models.Model):
@@ -142,14 +169,23 @@ class GrossProfit(SqlViewMixin, models.Model):
     def init(self):
         _logger.info("[GROSS_PROFIT] Creating view %s", self._table)
         try:
-            # Force drop view to ensure schema updates are applied
-            self.env.cr.execute("DROP VIEW IF EXISTS %s CASCADE" % self._table)
+            cr = self.env.cr
+            cr.execute("DROP VIEW IF EXISTS %s CASCADE" % self._table)
+
+            has_studio_date = _pg_column_exists(cr, "sale_order", "x_studio_date")
+            so_date_expr = (
+                "COALESCE(so.x_studio_date::date, so.date_order::date)"
+                if has_studio_date
+                else "so.date_order::date"
+            )
+            _logger.info("[GROSS_PROFIT] has_studio_date=%s date_expr=%s", has_studio_date, so_date_expr)
+
             sql = '''CREATE OR REPLACE VIEW %(table)s AS (
                     WITH pending_so AS (
                         -- SO yang BELUM di-DO
                         SELECT DISTINCT
                             so.id AS order_id,
-                            so.date_order::date AS order_date
+                            %(so_date_expr)s AS order_date
                         FROM sale_order so
                         WHERE so.state IN ('sale', 'done')
                           AND (
@@ -182,8 +218,8 @@ class GrossProfit(SqlViewMixin, models.Model):
                         SELECT
                             COALESCE(NULLIF(TRIM(pc.name), ''), 'Uncategorized') AS category_items,
                             MAX(pc.id) AS categ_id,
-                            so.date_order::date AS so_date,
-                            DATE_TRUNC('month', so.date_order)::date AS so_month,
+                            %(so_date_expr)s AS so_date,
+                            DATE_TRUNC('month', %(so_date_expr)s)::date AS so_month,
                             SUM(sol.product_uom_qty) AS qty,
                             SUM(sol.price_subtotal) AS amount
                         FROM sale_order_line sol
@@ -193,7 +229,8 @@ class GrossProfit(SqlViewMixin, models.Model):
                         LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                         LEFT JOIN product_category pc ON pc.id = pt.categ_id
                         WHERE so.state IN ('sale', 'done')
-                        GROUP BY pc.id, pc.name, so.date_order::date, DATE_TRUNC('month', so.date_order)::date
+                          AND (sol.display_type IS NULL OR sol.display_type = '')
+                        GROUP BY pc.id, pc.name, %(so_date_expr)s, DATE_TRUNC('month', %(so_date_expr)s)::date
                     ),
                     accounting_gp AS (
                         -- GP%% dari Accounting per category per bulan
@@ -265,8 +302,8 @@ class GrossProfit(SqlViewMixin, models.Model):
                         AND agp_curr.categ_id = cdc.categ_id
                         AND agp_curr.inv_month = cdc.so_month
                     ORDER BY cdc.so_date DESC, cdc.category_items
-                )''' % {'table': self._table}
-            self.env.cr.execute(sql)
+                )''' % {'table': self._table, 'so_date_expr': so_date_expr}
+            cr.execute(sql)
             _logger.info("[GROSS_PROFIT] View %s created successfully", self._table)
         except Exception as e:
             _logger.error("[GROSS_PROFIT] Error creating view %s: %s", self._table, str(e))
@@ -332,11 +369,11 @@ class RekapSOPayment(SqlViewMixin, models.Model):
     def init(self):
         _logger.info("[REKAP_SO] Creating view %s", self._table)
         try:
-            tools.drop_view_if_exists(self.env.cr, self._table)
+            cr = self.env.cr
+            tools.drop_view_if_exists(cr, self._table)
+
             # fjr_sales_bundle adds stock_move.sale_bundle_line_id; omit if module not installed
-            has_bundle_line = _pg_column_exists(
-                self.env.cr, "stock_move", "sale_bundle_line_id"
-            )
+            has_bundle_line = _pg_column_exists(cr, "stock_move", "sale_bundle_line_id")
             line_type_sql = (
                 """CASE
                                 WHEN sm.sale_bundle_line_id IS NOT NULL THEN 'Bundle'
@@ -348,6 +385,16 @@ class RekapSOPayment(SqlViewMixin, models.Model):
             group_by_bundle_sql = (
                 ", sm.sale_bundle_line_id" if has_bundle_line else ""
             )
+
+            # Studio custom date field on sale.order
+            has_studio_date = _pg_column_exists(cr, "sale_order", "x_studio_date")
+            so_date_expr = (
+                "COALESCE(so.x_studio_date::date, so.date_order::date)"
+                if has_studio_date
+                else "so.date_order::date"
+            )
+            _logger.info("[REKAP_SO] has_studio_date=%s date_expr=%s", has_studio_date, so_date_expr)
+
             sql = """
                 CREATE OR REPLACE VIEW %(table)s AS (
                     WITH product_names AS (
@@ -460,7 +507,7 @@ class RekapSOPayment(SqlViewMixin, models.Model):
                         ) AS id,
                         so.id AS order_id,
                         so.name AS so_number,
-                        so.date_order::date AS po_date,
+                        %(so_date_expr)s AS po_date,
                         rp.id AS partner_id,
                         COALESCE(NULLIF(TRIM(rp.name), ''), '') AS customer,
                         COALESCE(
@@ -553,15 +600,16 @@ class RekapSOPayment(SqlViewMixin, models.Model):
                     -- Payment via partial reconcile
                     LEFT JOIN payment_data pd ON pd.invoice_id = idata.invoice_id
                     WHERE so.state IN ('sale', 'done')
-                    ORDER BY so.date_order DESC, so.name, sol.sequence, dd.delivery_number
+                    ORDER BY %(so_date_expr)s DESC, so.name, sol.sequence, dd.delivery_number
                 )
             """ % {
                 "table": self._table,
                 "line_type_sql": line_type_sql,
                 "group_by_bundle_sql": group_by_bundle_sql,
+                "so_date_expr": so_date_expr,
             }
             _logger.info("[REKAP_SO] SQL Query prepared")
-            self.env.cr.execute(sql)
+            cr.execute(sql)
             _logger.info("[REKAP_SO] View %s created successfully", self._table)
         except Exception as e:
             _logger.error("[REKAP_SO] Error creating view %s: %s", self._table, str(e))
