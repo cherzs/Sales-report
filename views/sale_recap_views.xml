@@ -210,11 +210,13 @@
                     domain="[('payment_state', '=', '')]"/>
                 <filter name="delivered" string="Delivered" 
                     domain="[('delivery_status', '=', 'done')]"/>
+                <filter name="not_delivered" string="Not Delivered" 
+                    domain="[('delivery_status', '!=', 'done')]"/>
                 <filter name="invoiced" string="Invoiced" 
                     domain="[('invoice_status', 'in', ['invoiced', 'upselling'])]"/>
                 <separator/>
                 <filter name="bundle_component" string="Bundle Component" 
-                    domain="[('line_type', '=', 'Bundle Component')]"/>
+                    domain="[('line_type', '=', 'Bundle')]"/>
                 <filter name="standard_line" string="Standard Product" 
                     domain="[('line_type', '=', 'Standard')]"/>
                 <separator/>
