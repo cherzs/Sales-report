@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Sales Recap Report',
-    'version': '18.0.4.1.8',
+    'version': '18.0.4.1.9',
     'category': 'Sales',
     'summary': '3 Report: Gross Profit, Rekap SO, Sales Contribution',
     'description': """
@@ -56,7 +56,6 @@ This module fully replaces Excel-based reporting workflows.
         'security/ir.model.access.csv',
         'views/sale_recap_views.xml',
         'views/menu.xml',
-        'views/sale_order_line_views.xml',
         'reports/export_excel.xml',
     ],
     'installable': True,
