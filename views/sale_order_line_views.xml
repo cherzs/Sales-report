@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_sale_order_line_bundle_tree" model="ir.ui.view">
+        <field name="name">sale.order.line.bundle.tree</field>
+        <field name="model">sale.order.line</field>
+        <field name="inherit_id" ref="sale.view_order_line_tree"/>
+        <field name="priority" eval="10000"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='bundle_line_ids']" position="attributes">
+                <attribute name="string">Bundle</attribute>
+                <attribute name="optional">show</attribute>
+                <attribute name="widget">many2many_tags</attribute>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
