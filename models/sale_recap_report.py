@@ -181,27 +181,13 @@ class GrossProfit(SqlViewMixin, models.Model):
             _logger.info("[GROSS_PROFIT] has_studio_date=%s date_expr=%s", has_studio_date, so_date_expr)
 
             sql = '''CREATE OR REPLACE VIEW %(table)s AS (
-                    WITH pending_so AS (
-                        -- SO yang BELUM di-DO
+                    WITH valid_so AS (
+                        -- Semua SO valid (sale/done) tanpa filter delivery
                         SELECT DISTINCT
                             so.id AS order_id,
                             %(so_date_expr)s AS order_date
                         FROM sale_order so
                         WHERE so.state IN ('sale', 'done')
-                          AND (
-                              NOT EXISTS (
-                                  SELECT 1 FROM stock_picking sp 
-                                  WHERE sp.origin = so.name
-                              )
-                              OR
-                              EXISTS (
-                                  SELECT 1 FROM stock_picking sp
-                                  INNER JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
-                                  WHERE sp.origin = so.name
-                                    AND spt.code = 'outgoing'
-                                    AND sp.state IN ('draft', 'waiting', 'confirmed', 'assigned')
-                              )
-                          )
                     ),
                     all_categories AS (
                         -- Ambil semua category yang ada di product_category
@@ -214,7 +200,7 @@ class GrossProfit(SqlViewMixin, models.Model):
                         SELECT 'Uncategorized'::varchar AS category_items, NULL::int AS categ_id
                     ),
                     daily_amount AS (
-                        -- Amount dari SO yang belum di-DO per category per tanggal (bukan per bulan)
+                        -- Amount dari semua SO valid per category per tanggal
                         SELECT
                             COALESCE(NULLIF(TRIM(pc.name), ''), 'Uncategorized') AS category_items,
                             MAX(pc.id) AS categ_id,
@@ -224,7 +210,7 @@ class GrossProfit(SqlViewMixin, models.Model):
                             SUM(sol.price_subtotal) AS amount
                         FROM sale_order_line sol
                         INNER JOIN sale_order so ON so.id = sol.order_id
-                        INNER JOIN pending_so pso ON pso.order_id = so.id
+                        INNER JOIN valid_so vso ON vso.order_id = so.id
                         LEFT JOIN product_product pp ON pp.id = sol.product_id
                         LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                         LEFT JOIN product_category pc ON pc.id = pt.categ_id
@@ -260,9 +246,9 @@ class GrossProfit(SqlViewMixin, models.Model):
                         GROUP BY pc.id, pc.name, DATE_TRUNC('month', am.invoice_date)
                     ),
                     all_dates AS (
-                        -- Ambil semua tanggal unik dari SO yang pending
-                        SELECT DISTINCT pso.order_date AS so_date
-                        FROM pending_so pso
+                        -- Ambil semua tanggal unik dari SO yang valid
+                        SELECT DISTINCT vso.order_date AS so_date
+                        FROM valid_so vso
                     ),
                     category_date_combinations AS (
                         -- Cross join semua category dengan semua tanggal
